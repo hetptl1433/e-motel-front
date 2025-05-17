@@ -1,0 +1,100 @@
+.grid-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 10px;
+  padding: 20px;
+}
+.room-tile {
+  width: 80px;
+  height: 80px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: bold;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.1s;
+}
+.room-tile:active { transform: scale(0.95); }
+.status-clean       { background-color: green; }
+.status-dirty       { background-color: red; }
+.status-unavailable { background-color: grey; opacity: 0.6; cursor: not-allowed; }
+
+
+:root {
+  --color-clean: #4caf50;
+  --color-dirty: #f44336;
+  --color-unavailable: #9e9e9e;
+}
+
+.grid-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.room-tile {
+  position: relative;
+  aspect-ratio: 1 / 1;         /* keeps square shape */
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: white;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.room-tile::before {
+  content: attr(data-number);
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: rgba(255,255,255,0.8);
+  color: #333;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: normal;
+}
+
+.room-tile:not(.status-unavailable):hover {
+  transform: translateY(-4px) scale(1.05);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.status-clean {
+  background-color: var(--color-clean);
+}
+
+.status-dirty {
+  background-color: var(--color-dirty);
+}
+
+.status-unavailable {
+  background-color: var(--color-unavailable);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Responsive smaller tiles on mobile */
+@media (max-width: 480px) {
+  .grid-container {
+    grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+    gap: 8px;
+    padding: 8px;
+  }
+  .room-tile {
+    font-size: 1rem;
+    border-radius: 6px;
+  }
+  .room-tile::before {
+    font-size: 0.65rem;
+  }
+}

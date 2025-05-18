@@ -12,7 +12,7 @@ export default function Login() {
     e.preventDefault();
     try {
       await login({ number, password });
-      nav('/houseDashboard');
+      nav('/housekeeping');
     } catch {
       alert('Login failed');
     }

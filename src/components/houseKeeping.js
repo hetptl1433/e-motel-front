@@ -2,12 +2,6 @@ import React, { useState, useEffect } from 'react';
 import api from '../api';
 import { io } from 'socket.io-client';
 
-// ✅ Point to correct backend socket URL
-const socket = io(process.env.REACT_APP_SOCKET_URL, {
-  transports: ['websocket'],
-  withCredentials: true
-});
-
 const statusCycle = {
   clean: 'dirty',
   dirty: 'clean',
@@ -15,18 +9,29 @@ const statusCycle = {
 
 export default function HouseKeeping() {
   const [rooms, setRooms] = useState([]);
+  const [socket, setSocket] = useState(null);
 
-  // ✅ Check socket connection
   useEffect(() => {
-    socket.on('connect', () => console.log('🟢 Socket connected:', socket.id));
-    socket.on('connect_error', err => console.error('🔴 Socket error:', err.message));
+    const newSocket = io(process.env.REACT_APP_SOCKET_URL, {
+      transports: ['websocket'],
+      withCredentials: true
+    });
+
+    setSocket(newSocket);
+
+    newSocket.on('connect', () => console.log('🟢 Socket connected:', newSocket.id));
+    newSocket.on('connect_error', err => console.error('🔴 Socket error:', err.message));
+
+    return () => {
+      newSocket.disconnect();
+    };
   }, []);
 
-  // ✅ Fetch rooms from /room
+  // Fetch rooms from /room
   useEffect(() => {
     const fetchRooms = async () => {
       try {
-        const { data } = await api.get('/room'); // 👈 CORRECT: not /rooms
+        const { data } = await api.get('/room');
         setRooms(data);
       } catch (err) {
         console.error('❌ Failed to load rooms:', err);
@@ -35,24 +40,30 @@ export default function HouseKeeping() {
     fetchRooms();
   }, []);
 
-  // ✅ Listen to roomToggled event
+  // Listen to roomToggled event
   useEffect(() => {
-    socket.on('roomToggled', (updatedRoom) => {
+    if (!socket) return;
+
+    const handleRoomToggled = (updatedRoom) => {
       console.log('📦 Room update received:', updatedRoom);
       setRooms((rs) =>
         rs.map((r) => (r._id === updatedRoom._id ? updatedRoom : r))
       );
-    });
+    };
 
-    return () => socket.off('roomToggled');
-  }, []);
+    socket.on('roomToggled', handleRoomToggled);
 
-  // ✅ Toggle logic
+    return () => {
+      socket.off('roomToggled', handleRoomToggled);
+    };
+  }, [socket]);
+
+  // Toggle logic
   const toggleStatus = async (room) => {
     if (room.status === 'unavailable') return;
     const newStatus = statusCycle[room.status];
     try {
-      await api.put(`/room/${room._id}`, { status: newStatus }); // 👈 CORRECT: not /rooms
+      await api.put(`/room/${room._id}`, { status: newStatus });
       setRooms((rs) =>
         rs.map((r) =>
           r._id === room._id ? { ...r, status: newStatus } : r

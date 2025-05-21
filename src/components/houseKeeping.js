@@ -40,27 +40,23 @@ export default function HouseKeeping() {
     fetchRooms();
   }, []);
 
-  // Listen to roomToggled event with enhanced logging and forced state update
+  // Listen to roomStatusChanged event
   useEffect(() => {
     if (!socket) return;
 
-    const handleRoomToggled = (updatedRoom) => {
+    const handleRoomStatusChanged = (updatedRoom) => {
       console.log('📦 Room update received:', updatedRoom);
 
       setRooms((rs) => {
         const updatedRooms = rs.map((r) => (r._id === updatedRoom._id ? updatedRoom : r));
-        // Log comparison to check if state actually changes
-        const isChanged = JSON.stringify(rs) !== JSON.stringify(updatedRooms);
-        console.log('State changed:', isChanged);
-        // Force update by returning a new array reference
         return updatedRooms;
       });
     };
 
-    socket.on('roomToggled', handleRoomToggled);
+    socket.on('roomStatusChanged', handleRoomStatusChanged);
 
     return () => {
-      socket.off('roomToggled', handleRoomToggled);
+      socket.off('roomStatusChanged', handleRoomStatusChanged);
     };
   }, [socket]);
 

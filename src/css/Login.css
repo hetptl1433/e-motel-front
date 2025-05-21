@@ -1,0 +1,53 @@
+
+
+.login-container {
+  @apply min-h-screen flex items-center justify-center bg-gradient-to-r from-blue-400 to-purple-600;
+}
+
+.login-form {
+  @apply bg-white bg-opacity-90 backdrop-filter backdrop-blur-lg rounded-lg shadow-lg p-8 max-w-md w-full;
+}
+
+.login-title {
+  @apply text-3xl font-bold mb-6 text-center text-gray-800;
+}
+
+.login-input {
+  @apply w-full mb-4 px-4 py-3 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-300;
+}
+
+.login-button {
+  @apply w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-md transition duration-300 transform hover:scale-105;
+}
+
+.forgot-password {
+  @apply mt-4 w-full text-center text-blue-600 hover:text-blue-800 underline focus:outline-none;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.8s ease forwards;
+}
+
+
+.login-container {
+  @apply min-h-screen flex items-center justify-center bg-gradient-to-r from-blue-400 to-purple-600;
+  font-family: 'Poppins', sans-serif;
+}
+
+.login-title,
+.login-input,
+.login-button,
+.forgot-password {
+  font-family: 'Poppins', sans-serif;
+}

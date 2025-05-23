@@ -23,7 +23,9 @@ export default function Login() {
   return (
     <div className="login-container">
       <div className="text-center mb-8 mr-6">
-        <h1 className="text-4xl font-extrabold text-white mb-2">E-motel</h1>
+        <h1 className="text-4xl font-extrabold text-white mb-2">
+          <span className="">E</span>-motel
+        </h1>
         <p className="text-white text-lg max-w-md mx-auto">
           Manage your housekeeper service efficiently with E-motel.
         </p>

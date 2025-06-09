@@ -5,7 +5,8 @@ import ProtectedRoute from './routes/ProtectedRoutes';
 import Login from './components/Login';
 import './css/house.css';
 import HouseKeeping from './components/houseKeeping';
-
+import UploadReport from './components/UploadReport';
+import Dashboard from './components/Dashboard';
 
 
 function App() {
@@ -16,10 +17,18 @@ function App() {
           <Route path="/" element={<Login />} />
           
           <Route
-            path="/housekeeping"
+            path="/dashboard"
             element={
               <ProtectedRoute>
-                <HouseKeeping />
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/upload-report"
+            element={
+              <ProtectedRoute>
+                <UploadReport />
               </ProtectedRoute>
             }
           />

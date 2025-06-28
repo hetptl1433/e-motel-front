@@ -15,7 +15,14 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Login />} />
-          
+          <Route
+            path="/housekeeping"
+            element={
+              <ProtectedRoute>
+                <HouseKeeping />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/dashboard"
             element={

@@ -9,6 +9,9 @@ export default function Dashboard() {
   const [editingRoom, setEditingRoom] = useState(null);
   const [editingData, setEditingData] = useState({});
   const [sortBy, setSortBy] = useState('room');
+  const [showPopup, setShowPopup] = useState(false);
+  const [popupMessage, setPopupMessage] = useState('');
+  const [popupType, setPopupType] = useState('success'); // 'success' or 'error'
   const [filterBy, setFilterBy] = useState({
     status: 'all',
     occupancy: 'all',
@@ -119,6 +122,29 @@ export default function Dashboard() {
     setEditingData({});
   };
 
+  // Import rooms to housekeeping dashboard
+  const handleImportToHousekeeping = async () => {
+    try {
+      setLoading(true);
+      await api.post('/room/import-to-housekeeping', {
+        date: selectedDate
+      });
+      setError(null);
+      setPopupMessage('Rooms imported to housekeeping dashboard successfully!');
+      setPopupType('success');
+      setShowPopup(true);
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || err.message || 'Failed to import to housekeeping dashboard';
+      setError(errorMessage);
+      setPopupMessage(errorMessage);
+      setPopupType('error');
+      setShowPopup(true);
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getFilteredAndSortedRooms = (rooms) => {
     if (!Array.isArray(rooms)) return [];
     
@@ -172,6 +198,57 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
+      {/* Beautiful Popup */}
+      {showPopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              {popupType === 'success' ? (
+                <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                  <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+              ) : (
+                <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                  <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </div>
+              )}
+              <h3 className={`text-lg font-semibold ${popupType === 'success' ? 'text-green-800' : 'text-red-800'}`}>
+                {popupType === 'success' ? 'Success' : 'Error'}
+              </h3>
+            </div>
+            <p className="text-gray-700 mb-6">{popupMessage}</p>
+            <button
+              onClick={() => setShowPopup(false)}
+              className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${
+                popupType === 'success' 
+                  ? 'bg-green-600 hover:bg-green-700 text-white' 
+                  : 'bg-red-600 hover:bg-red-700 text-white'
+              }`}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Import Button - Top Right */}
+      <div className="mb-6 flex justify-end">
+        <button
+          onClick={handleImportToHousekeeping}
+          disabled={loading}
+          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors flex items-center gap-2"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Import to Housekeeping
+        </button>
+      </div>
+
       {/* Header Section */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-2">Housekeeping Dashboard</h1>

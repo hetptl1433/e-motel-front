@@ -87,28 +87,6 @@ export default function HouseKeeping() {
         Housekeeping Dashboard
       </h1>
 
-      {/* Debug Panel */}
-      <div className="mb-4 p-3 bg-gray-100 rounded-lg text-sm">
-        <div className="flex justify-between items-center">
-          <div>
-            <div>
-              🔗 Socket Status:{' '}
-              <span className={socket?.connected ? 'text-green-600 font-bold' : 'text-red-600 font-bold'}>
-                {socket?.connected ? '✅ Connected' : '❌ Disconnected'}
-              </span>
-            </div>
-            <div>🆔 Socket ID: <span className="font-mono">{socket?.id || 'None'}</span></div>
-            <div>📊 Rooms Count: <span className="font-bold">{rooms.length}</span></div>
-          </div>
-          <button
-            onClick={fetchRooms}
-            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-          >
-            🔄 Refresh
-          </button>
-        </div>
-      </div>
-
       {/* Room Grid */}
       <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
         {rooms.map(room => {

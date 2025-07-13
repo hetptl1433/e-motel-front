@@ -32,7 +32,6 @@ export default function Dashboard() {
       setError(null);
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'An error occurred');
-      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -74,7 +73,6 @@ export default function Dashboard() {
       setError(null);
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'An error occurred');
-      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -111,7 +109,6 @@ export default function Dashboard() {
       setError(null);
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'An error occurred');
-      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -139,7 +136,6 @@ export default function Dashboard() {
       setPopupMessage(errorMessage);
       setPopupType('error');
       setShowPopup(true);
-      console.error(err);
     } finally {
       setLoading(false);
     }

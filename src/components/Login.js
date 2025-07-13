@@ -15,7 +15,6 @@ export default function Login() {
       await login({ number, password });
       nav('/housekeeping');
     } catch (error) {
-      console.error('Login error:', error);
       alert('Login failed');
     }
   };

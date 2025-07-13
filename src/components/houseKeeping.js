@@ -15,7 +15,6 @@ export default function HouseKeeping() {
   useEffect(() => {
     if (socketRef.current) return; // already initialized
 
-    console.log('🔌 Creating SINGLE socket connection…');
     const socket = io(process.env.REACT_APP_SOCKET_URL, {
       transports: ['websocket', 'polling'],
       withCredentials: true,
@@ -23,31 +22,28 @@ export default function HouseKeeping() {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('🟢 Socket connected:', socket.id);
+      // Socket connected
     });
     socket.on('connect_error', err => {
-      console.error('🔴 Socket connection error:', err.message);
+      // Socket connection error
     });
     socket.on('disconnect', reason => {
-      console.warn('⚡ Socket disconnected:', reason);
+      // Socket disconnected
     });
 
     // LIST event: { action, count, data: [...] }
     socket.on('housekeepingListUpdated', ({ data }) => {
-      console.log('📥 [Socket] housekeepingListUpdated:', data);
       setRooms(Array.isArray(data) ? data : []);
     });
 
     // UPDATE event: { action, recordId, roomNumber, updates, data: { … } }
     socket.on('housekeepingStatusUpdated', ({ data }) => {
-      console.log('📥 [Socket] housekeepingStatusUpdated:', data);
       setRooms(prev =>
         prev.map(r => (r._id === data._id ? { ...r, ...data } : r))
       );
     });
 
     return () => {
-      console.log('🔌 Cleaning up socket…');
       socket.disconnect();
     };
   }, []);
@@ -56,10 +52,8 @@ export default function HouseKeeping() {
   const fetchRooms = async () => {
     try {
       const { data } = await api.get('/housekeeper');
-      console.log('📊 Housekeeper API response:', data);
       setRooms(data.data ?? data);
     } catch (err) {
-      console.error('❌ Failed to load rooms:', err);
       setRooms([]);
     }
   };
@@ -70,13 +64,10 @@ export default function HouseKeeping() {
 
   // 3) Toggle status
   const toggleStatus = async room => {
-    console.log('🔄 Toggling room status:', room.roomNumber, 'from', room.housekeepingStatus);
     const newStatus = statusCycle[room.housekeepingStatus];
-    console.log('🎯 New status will be:', newStatus);
 
     try {
       const response = await api.put(`/housekeeper/${room._id}`, { housekeepingStatus: newStatus });
-      console.log('✅ API response:', response.data);
       // Optimistic update; real update comes via socket
       setRooms(prev =>
         prev.map(r =>
@@ -84,7 +75,7 @@ export default function HouseKeeping() {
         )
       );
     } catch (err) {
-      console.error('❌ Failed to update status:', err.response?.data || err);
+      // Failed to update status
     }
   };
 

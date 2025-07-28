@@ -7,6 +7,7 @@ import './css/house.css';
 import HouseKeeping from './components/houseKeeping';
 import UploadReport from './components/UploadReport';
 import Dashboard from './components/Dashboard';
+import RoomSheets from './components/RoomSheets';
 
 
 function App() {
@@ -36,6 +37,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <UploadReport />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/room-sheets"
+            element={
+              <ProtectedRoute>
+                <RoomSheets />
               </ProtectedRoute>
             }
           />

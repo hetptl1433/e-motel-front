@@ -1,4 +1,4 @@
-import { extractRooms, isReportDate, isRoomUnavailable, localDate, normalizedStayDate, roomStatus, shiftDate, sortRooms } from './roomData';
+import { extractRooms, isReportDate, isRoomUnavailable, localDate, mergeRoomRecord, normalizedStayDate, roomStatus, shiftDate, sortRooms } from './roomData';
 
 test('daily navigation preserves calendar days across DST and year boundaries', () => {
   expect(shiftDate('2026-03-08', 1)).toBe('2026-03-09');
@@ -43,4 +43,30 @@ test('room lists support both API shapes and sort numeric room identifiers witho
   expect(sortRooms(rooms)).toEqual([rooms[1], rooms[2], rooms[0]]);
   expect(rooms.map(room => room.room || room.roomNumber)).toEqual(['110', 9, '102']);
   expect(() => extractRooms({ data: null })).toThrow('invalid room list');
+});
+
+test.each([
+  { updatedAt: '2026-10-03T12:00:01.000Z' },
+  {},
+  { updatedAt: null },
+  { updatedAt: 'invalid timestamp' }
+])('a raw older or unversioned response cannot replace a newer room: %p', version => {
+  const current = { _id: '101', notes: 'Latest desk note', occupancyStatus: 'Occupied', updatedAt: '2026-10-03T12:00:02.000Z' };
+  const incoming = { _id: '101', notes: 'Older saved note', occupancyStatus: 'Vacant', ...version };
+  expect(mergeRoomRecord(current, incoming)).toBe(current);
+  expect(incoming.notes).toBe('Older saved note');
+});
+
+test('a current server patch retains untouched fields and updates a known version', () => {
+  const current = { _id: '101', roomNumber: '101', notes: 'Old note', updatedAt: '2026-10-03T12:00:01.000Z' };
+  const incoming = { notes: 'Saved note', updatedAt: '2026-10-03T12:00:02.000Z' };
+  expect(mergeRoomRecord(current, incoming)).toEqual({ ...current, ...incoming });
+  expect(current.notes).toBe('Old note');
+  expect(mergeRoomRecord(current, { notes: 'Same-version note', updatedAt: current.updatedAt }).notes).toBe('Same-version note');
+});
+
+test('legacy records without a known version can receive partial changes', () => {
+  const current = { _id: '101', roomNumber: '101', housekeepingStatus: 'Dirty' };
+  expect(mergeRoomRecord(current, { housekeepingStatus: 'Clean' })).toEqual({ ...current, housekeepingStatus: 'Clean' });
+  expect(mergeRoomRecord(undefined, current)).toEqual(current);
 });

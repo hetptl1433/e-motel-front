@@ -21,14 +21,20 @@ const request = overrides => {
 const createRoom = (room, extra = {}) => RoomReport.create({ room, reportDate: new Date(day), housekeepingStatus: 'Dirty', occupancyStatus: 'Occupied', ...extra });
 
 test('concurrent imports, checkout, and cleaning preserve the latest staff action in MongoDB', { skip: !process.env.TEST_MONGO_URI }, async t => {
-  const database = `motelapp_concurrency_qa_${randomUUID().replace(/-/g, '')}`;
+  const database = `motel_qa_races_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'motel-concurrency-test-'));
-  await mongoose.connect(process.env.TEST_MONGO_URI, { dbName: database, serverSelectionTimeoutMS: 5000 });
   t.after(async () => {
-    await mongoose.connection.dropDatabase();
-    await mongoose.disconnect();
-    await fs.rm(directory, { recursive: true, force: true });
+    try {
+      if (mongoose.connection.readyState === 1) await mongoose.connection.dropDatabase();
+    } finally {
+      try {
+        await mongoose.disconnect();
+      } finally {
+        await fs.rm(directory, { recursive: true, force: true });
+      }
+    }
   });
+  await mongoose.connect(process.env.TEST_MONGO_URI, { dbName: database, serverSelectionTimeoutMS: 5000 });
   await Promise.all([RoomReport.init(), Housekeeper.init()]);
 
   await t.test('checkout between an upload snapshot and bulk write is not reverted', async st => {

@@ -13,6 +13,20 @@ function recordChanged() {
   return error;
 }
 
+function expectedVersion(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid('Record data must be an object');
+  const { expectedUpdatedAt, ...data } = input;
+  if (expectedUpdatedAt === undefined) return { data, expectedUpdatedAt };
+  if (typeof expectedUpdatedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(expectedUpdatedAt)
+    || Number.isNaN(new Date(expectedUpdatedAt).getTime())) throw invalid('expectedUpdatedAt must be a valid ISO timestamp');
+  parseReportDate(expectedUpdatedAt.slice(0, 10));
+  return { data, expectedUpdatedAt: new Date(expectedUpdatedAt) };
+}
+
+function assertExpectedVersion(record, expectedUpdatedAt) {
+  if (expectedUpdatedAt !== undefined && (!record?.updatedAt || new Date(record.updatedAt).getTime() !== expectedUpdatedAt.getTime())) throw recordChanged();
+}
+
 function parseReportDate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw invalid('Date must use YYYY-MM-DD format');
@@ -88,9 +102,9 @@ function assertStaffCanClean(record, updates, role) {
 
 const TEXT_FIELDS = ['type', 'guestStatus', 'checkIn', 'checkOut', 'orderStatus', 'reason', 'description', 'assignedAttendant', 'notes'];
 const ROOM_FIELDS = ['room', ...TEXT_FIELDS, 'housekeepingStatus', 'occupancyStatus', 'pet', 'reportDate'];
-const HOUSEKEEPING_FIELDS = ['roomNumber', ...TEXT_FIELDS, 'housekeepingStatus', 'occupancyStatus', 'pet', 'reportDate', 'cleanedAt', 'inspectedAt', 'issues', 'photos'];
+const HOUSEKEEPING_FIELDS = ['roomNumber', ...TEXT_FIELDS, 'housekeepingStatus', 'occupancyStatus', 'pet', 'reportDate', 'cleanedAt', 'inspectedAt', 'stayoverServicedAt', 'issues', 'photos'];
 const STAFF_ROOM_FIELDS = ['housekeepingStatus', 'notes'];
-const STAFF_HOUSEKEEPING_FIELDS = ['housekeepingStatus', 'notes', 'cleanedAt', 'inspectedAt', 'issues', 'photos'];
+const STAFF_HOUSEKEEPING_FIELDS = ['housekeepingStatus', 'notes', 'cleanedAt', 'inspectedAt', 'stayoverServicedAt', 'issues', 'photos'];
 
 function normalizeFields(input, { housekeeping = false, partial = false, role, imported = false, reportDate } = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid('Record data must be an object');
@@ -98,13 +112,16 @@ function normalizeFields(input, { housekeeping = false, partial = false, role, i
   const permitted = partial && role === 'housekeeping'
     ? (housekeeping ? STAFF_HOUSEKEEPING_FIELDS : STAFF_ROOM_FIELDS)
     : (partial ? fields.filter(field => !['room', 'roomNumber', 'reportDate'].includes(field)) : fields);
+  // Service completion is staff progress, written only against a checked current
+  // record. A new/imported report cannot claim that service has already happened.
+  const editableFields = partial ? permitted : permitted.filter(field => field !== 'stayoverServicedAt');
   if (!imported) {
-    const unsupported = Object.keys(input).filter(key => !permitted.includes(key));
+    const unsupported = Object.keys(input).filter(key => !editableFields.includes(key));
     if (unsupported.length) throw invalid(`Fields cannot be changed: ${unsupported.join(', ')}`);
   }
   const record = {};
   for (const field of fields) {
-    if (input[field] !== undefined) record[field] = input[field];
+    if (input[field] !== undefined && !(field === 'stayoverServicedAt' && imported)) record[field] = input[field];
   }
   if (imported && housekeeping) {
     for (const flag of ['clean', 'dirty', 'occupied', 'vacant']) {
@@ -148,7 +165,7 @@ function normalizeFields(input, { housekeeping = false, partial = false, role, i
   if (record.pet !== undefined && typeof record.pet !== 'boolean') throw invalid('pet must be true or false');
   if (reportDate !== undefined) record.reportDate = parseReportDate(reportDate);
   else if (!partial || record.reportDate !== undefined) record.reportDate = parseReportDate(record.reportDate);
-  for (const field of ['cleanedAt', 'inspectedAt']) {
+  for (const field of ['cleanedAt', 'inspectedAt', 'stayoverServicedAt']) {
     if (record[field] !== undefined && record[field] !== null) {
       const date = new Date(record[field]);
       if ((typeof record[field] !== 'string' && !(imported && record[field] instanceof Date)) || Number.isNaN(date.getTime())) throw invalid(`${field} must be a valid date or null`);
@@ -178,7 +195,7 @@ function sendError(res, error, message) {
 }
 
 module.exports = {
-  HOUSEKEEPING_STATUSES, OCCUPANCY_STATUSES, invalid, recordChanged, parseReportDate, dateRange,
+  HOUSEKEEPING_STATUSES, OCCUPANCY_STATUSES, invalid, recordChanged, expectedVersion, assertExpectedVersion, parseReportDate, dateRange,
   normalizeRoomNumber, normalizeHousekeepingStatus, normalizeOccupancyStatus,
   normalizeFields, isOutOfOrder, isRoomUnavailable, assertStaffCanClean, emitMutation, sendError
 };

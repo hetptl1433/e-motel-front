@@ -77,3 +77,15 @@ test('an older save response cannot overwrite another staff member\'s newer live
   act(() => result.current.setRooms(rooms => rooms.map(value => ({ ...value, housekeepingStatus: 'Dirty', updatedAt: '2026-10-03T12:00:01.000Z' }))));
   expect(result.current.rooms).toEqual([newest]);
 });
+
+test('an unversioned or invalid-version replacement preserves a known current room', async () => {
+  const newest = { ...room, housekeepingStatus: 'Clean', notes: 'Front desk changed this room', updatedAt: '2026-10-03T12:00:02.000Z' };
+  api.get.mockResolvedValueOnce(response([newest]));
+  const { result } = renderHook(() => useDatedRooms('/housekeeper', '2026-10-03'));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  act(() => result.current.setRooms([{ ...room, housekeepingStatus: 'Dirty' }]));
+  expect(result.current.rooms[0]).toBe(newest);
+  act(() => result.current.setRooms([{ ...room, housekeepingStatus: 'Dirty', updatedAt: 'invalid' }]));
+  expect(result.current.rooms[0]).toBe(newest);
+});

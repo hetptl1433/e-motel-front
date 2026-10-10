@@ -36,6 +36,17 @@ export function sortRooms(rooms) {
   return [...rooms].sort((a, b) => roomNumber(a).localeCompare(roomNumber(b), undefined, { numeric: true }));
 }
 
+// Compare the raw server response before merging it with local fields. Giving
+// an unversioned response the current timestamp would hide that it may be stale.
+export function mergeRoomRecord(existing, incoming) {
+  if (!incoming || typeof incoming !== 'object') return existing;
+  if (!existing) return { ...incoming };
+  const currentTime = Date.parse(existing.updatedAt);
+  const incomingTime = Date.parse(incoming.updatedAt);
+  if (Number.isFinite(currentTime) && (!Number.isFinite(incomingTime) || incomingTime < currentTime)) return existing;
+  return { ...existing, ...incoming };
+}
+
 const unavailableOrderCodes = new Set(['ooi', 'oi', 'ooo', 'oo', 'oos']);
 
 export function roomStatus(room) {

@@ -10,6 +10,7 @@ const roomReportSchema = new mongoose.Schema({
   checkIn: { type: String, trim: true },
   checkOut: { type: String, trim: true },
   checkedOutAt: Date,
+  stayoverServicedAt: Date,
   orderStatus: { type: String, trim: true },
   reason: { type: String, trim: true },
   description: { type: String, trim: true },

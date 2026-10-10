@@ -19,9 +19,15 @@ async function invoke(controller, overrides) {
 
 test('Mongo import, reimport, bulk updates, and bidirectional room synchronization', { skip: !process.env.TEST_MONGO_URI }, async t => {
   // A unique database is created and removed by this test; configured application data is never opened.
-  const database = `motelapp_backend_qa_${randomUUID().replace(/-/g, '')}`;
+  const database = `motel_qa_backend_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  t.after(async () => {
+    try {
+      if (mongoose.connection.readyState === 1) await mongoose.connection.dropDatabase();
+    } finally {
+      await mongoose.disconnect();
+    }
+  });
   await mongoose.connect(process.env.TEST_MONGO_URI, { dbName: database, serverSelectionTimeoutMS: 5000 });
-  t.after(async () => { await mongoose.connection.dropDatabase(); await mongoose.disconnect(); });
   await Promise.all([RoomReport.init(), Housekeeper.init()]);
   const reports = await RoomReport.create([
     { room: '101', reportDate: new Date('2026-10-03T12:00:00Z'), housekeepingStatus: 'Dirty', occupancyStatus: 'Occupied', notes: null },

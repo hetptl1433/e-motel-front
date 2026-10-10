@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../api';
-import { extractRooms, requestError } from '../utils/roomData';
+import { extractRooms, mergeRoomRecord, requestError } from '../utils/roomData';
 
 export default function useDatedRooms(endpoint, date) {
   const [snapshot, setSnapshot] = useState({ date: '', rooms: [] });
@@ -27,7 +27,7 @@ export default function useDatedRooms(endpoint, date) {
           const existing = currentById.get(room._id);
           // Another staff member's socket update can beat this client's older
           // save response. Server timestamps identify the more recent record.
-          return existing && new Date(existing.updatedAt).getTime() > new Date(room.updatedAt).getTime() ? existing : room;
+          return mergeRoomRecord(existing, room);
         })
       };
     });

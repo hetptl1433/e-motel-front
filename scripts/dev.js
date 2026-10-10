@@ -20,7 +20,13 @@ for (const app of apps) {
     stop(1);
     break;
   }
-  const child = spawn(process.execPath, [path.join(app.cwd, app.script), ...app.args], {
+  const script = path.join(app.cwd, app.script);
+  // Production-style dependency installs omit nodemon. Supported Node versions
+  // can still watch the backend so the documented local command remains usable.
+  const args = app.name === 'Backend' && !fs.existsSync(script)
+    ? ['--watch', path.join(app.cwd, 'server.js')]
+    : [script, ...app.args];
+  const child = spawn(process.execPath, args, {
     cwd: app.cwd, stdio: 'inherit', env: { ...process.env, BROWSER: 'none' }
   });
   children.push(child);

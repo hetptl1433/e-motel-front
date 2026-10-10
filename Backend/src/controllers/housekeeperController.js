@@ -2,32 +2,37 @@ const mongoose = require('mongoose');
 const Housekeeper = require('../models/Housekeeper');
 const RoomReport = require('../models/RoomReport');
 const { syncReportMetadata } = require('../utils/housekeepingSync');
-const { dateRange, parseReportDate, normalizeRoomNumber, normalizeFields, isOutOfOrder, isRoomUnavailable, assertStaffCanClean, emitMutation, sendError, invalid, recordChanged } = require('../utils/roomData');
+const { dateRange, parseReportDate, normalizeRoomNumber, normalizeFields, isOutOfOrder, isRoomUnavailable, assertStaffCanClean, emitMutation, sendError, invalid, recordChanged, expectedVersion, assertExpectedVersion } = require('../utils/roomData');
+const { assertCanServiceStayover, isStayover } = require('../utils/stayover');
+const { synchronizeRecord } = require('../utils/recordSync');
 
-const roomSyncFields = ['type', 'housekeepingStatus', 'occupancyStatus', 'guestStatus', 'checkIn', 'checkOut', 'checkedOutAt', 'orderStatus', 'reason', 'description', 'assignedAttendant', 'notes', 'pet'];
+const roomSyncFields = ['type', 'housekeepingStatus', 'occupancyStatus', 'guestStatus', 'checkIn', 'checkOut', 'checkedOutAt', 'stayoverServicedAt', 'orderStatus', 'reason', 'description', 'assignedAttendant', 'notes', 'pet'];
 const recordDate = record => new Date(record.reportDate).toISOString().slice(0, 10);
 
-async function checkStaffAvailability(id, updates, role) {
-  if (role !== 'housekeeping' || !['Clean', 'Dirty'].includes(updates.housekeepingStatus)) return;
-  const record = await Housekeeper.findById(id);
-  assertStaffCanClean(record, updates, role);
-  return record;
-}
-
-async function updateHousekeepingRecord(id, updates, role) {
+async function updateHousekeepingRecord(id, updates, role, expectedUpdatedAt) {
+  const serviceUpdate = Object.hasOwn(updates, 'stayoverServicedAt');
+  if (serviceUpdate && (updates.occupancyStatus !== undefined || updates.housekeepingStatus !== undefined)) {
+    throw invalid('Update stayover service separately from occupancy and cleaning status');
+  }
   if (updates.occupancyStatus === 'Occupied') updates.checkedOutAt = null;
-  if (role !== 'housekeeping' || !['Clean', 'Dirty'].includes(updates.housekeepingStatus)) {
+  const guarded = expectedUpdatedAt !== undefined || serviceUpdate || updates.occupancyStatus !== undefined || ['Clean', 'Dirty'].includes(updates.housekeepingStatus);
+  if (!guarded) {
     return Housekeeper.findByIdAndUpdate(id, { $set: updates }, { new: true, runValidators: true });
   }
-  const current = await checkStaffAvailability(id, updates, role);
+  const current = await Housekeeper.findById(id);
   if (!current) return null;
+  assertExpectedVersion(current, expectedUpdatedAt);
+  assertStaffCanClean(current, updates, role);
+  if (serviceUpdate) assertCanServiceStayover(current, updates);
+  withCleaningTimestamp(updates, current);
+  if (updates.occupancyStatus !== undefined && updates.occupancyStatus !== current.occupancyStatus) updates.stayoverServicedAt = null;
   const record = await Housekeeper.findOneAndUpdate({ _id: id, updatedAt: current.updatedAt ?? null }, { $set: updates }, { new: true, runValidators: true });
   if (!record) throw recordChanged();
   return record;
 }
 
-function withCleaningTimestamp(updates) {
-  if (updates.housekeepingStatus === 'Clean' && updates.cleanedAt === undefined) updates.cleanedAt = new Date();
+function withCleaningTimestamp(updates, current) {
+  if (updates.housekeepingStatus === 'Clean' && updates.cleanedAt === undefined) updates.cleanedAt = current?.housekeepingStatus === 'Clean' && current.cleanedAt ? current.cleanedAt : new Date();
   if (updates.housekeepingStatus === 'Dirty') {
     updates.cleanedAt = null;
     updates.inspectedAt = null;
@@ -41,10 +46,16 @@ async function syncToRoomReport(req, record, updates) {
   try {
     const date = recordDate(record);
     const filter = { room: record.roomNumber, reportDate: dateRange(date) };
-    const result = await RoomReport.updateMany(filter, { $set: changes }, { runValidators: true });
-    if (result.modifiedCount) {
-      const rooms = await RoomReport.find(filter);
-      rooms.forEach(room => emitMutation(req, 'roomStatusUpdated', { action: 'housekeepingUpdate', date, data: room }));
+    const result = await synchronizeRecord({
+      SourceModel: Housekeeper, TargetModel: RoomReport, source: record, filter, changesFor: () => changes,
+      canApply: target => {
+        if (updates.stayoverServicedAt && !isStayover(target)) return false;
+        if (req.user?.role === 'housekeeping' && ['Clean', 'Dirty'].includes(changes.housekeepingStatus)) return target.occupancyStatus === 'Vacant' && !isRoomUnavailable(target);
+        return true;
+      }
+    });
+    if (result.changed) {
+      result.data.forEach(room => emitMutation(req, 'roomStatusUpdated', { action: 'housekeepingUpdate', date, data: room }));
     }
   } catch (error) {
     console.error('Room report synchronization failed:', error.message);
@@ -66,8 +77,9 @@ exports.updateStatus = async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.isObjectIdOrHexString(id)) throw invalid('Invalid housekeeper record ID format');
-    const updates = withCleaningTimestamp(normalizeFields(req.body, { housekeeping: true, partial: true, role: req.user?.role }));
-    const data = await updateHousekeepingRecord(id, updates, req.user?.role);
+    const input = expectedVersion(req.body);
+    const updates = normalizeFields(input.data, { housekeeping: true, partial: true, role: req.user?.role });
+    const data = await updateHousekeepingRecord(id, updates, req.user?.role, input.expectedUpdatedAt);
     if (!data) return res.status(404).json({ success: false, message: 'Housekeeper record not found' });
     const warning = await syncToRoomReport(req, data, updates);
     emitMutation(req, 'housekeepingStatusUpdated', { action: 'update', recordId: id, roomNumber: data.roomNumber, date: data.reportDate ? recordDate(data) : undefined, updates, data });
@@ -173,21 +185,24 @@ exports.bulkUpdateStatus = async (req, res) => {
     if (!Array.isArray(updates) || !updates.length || updates.length > 250) throw invalid('Provide an updates array with 1 to 250 records');
     const results = [];
     const errors = [];
+    const warnings = [];
     for (const update of updates) {
       const id = update?.id;
       try {
         if (!mongoose.isObjectIdOrHexString(id)) throw invalid('Invalid ID format');
-        const data = withCleaningTimestamp(normalizeFields(update.data, { housekeeping: true, partial: true, role: req.user?.role }));
-        const record = await updateHousekeepingRecord(id, data, req.user?.role);
+        const input = expectedVersion(update.data);
+        const data = normalizeFields(input.data, { housekeeping: true, partial: true, role: req.user?.role });
+        const record = await updateHousekeepingRecord(id, data, req.user?.role, input.expectedUpdatedAt);
         if (!record) throw invalid('Record not found');
-        await syncToRoomReport(req, record, data);
+        const warning = await syncToRoomReport(req, record, data);
+        if (warning) warnings.push({ id, warning });
         results.push(record);
       } catch (error) {
         errors.push({ id, error: error.status || ['ValidationError', 'CastError'].includes(error.name) ? error.message : 'Failed to update record' });
       }
     }
-    if (results.length) emitMutation(req, 'housekeepingBulkUpdated', { action: 'bulkUpdate', successCount: results.length, errorCount: errors.length, data: results });
-    res.status(results.length ? 200 : 400).json({ success: results.length > 0, successCount: results.length, errorCount: errors.length, results, errors });
+    if (results.length) emitMutation(req, 'housekeepingBulkUpdated', { action: 'bulkUpdate', successCount: results.length, errorCount: errors.length, data: results, ...(warnings.length && { warnings }) });
+    res.status(results.length ? 200 : 400).json({ success: results.length > 0, successCount: results.length, errorCount: errors.length, results, errors, ...(warnings.length && { warnings }) });
   } catch (error) {
     sendError(res, error, 'Failed to perform bulk update');
   }

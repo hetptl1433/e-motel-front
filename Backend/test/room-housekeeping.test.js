@@ -7,6 +7,7 @@ const rooms = require('../src/controllers/roomController');
 const housekeeping = require('../src/controllers/housekeeperController');
 const { syncReportMetadata } = require('../src/utils/housekeepingSync');
 const { parseReportDate, dateRange, normalizeFields, normalizeHousekeepingStatus, normalizeOccupancyStatus, isRoomUnavailable } = require('../src/utils/roomData');
+const { normalizedStayDate, isStayover } = require('../src/utils/stayover');
 
 function response() {
   return { statusCode: 200, body: null, status(value) { this.statusCode = value; return this; }, json(value) { this.body = value; return this; } };
@@ -90,7 +91,7 @@ test('an invalid import batch cannot mutate or erase existing housekeeping recor
 
 test('reimport only upserts the selected date and preserves existing staff progress', async t => {
   const stored = [
-    { _id: 'first', roomNumber: '101', reportDate: new Date('2026-10-03'), housekeepingStatus: 'Clean', notes: 'Inspected', assignedAttendant: 'Sam', cleanedAt: new Date('2026-10-03T12:00:00Z') },
+    { _id: 'first', roomNumber: '101', reportDate: new Date('2026-10-03'), housekeepingStatus: 'Clean', notes: 'Inspected', assignedAttendant: 'Sam', cleanedAt: new Date('2026-10-03T12:00:00Z'), stayoverServicedAt: new Date('2026-10-03T13:00:00Z') },
     { _id: 'other-day', roomNumber: '101', reportDate: new Date('2026-10-02'), housekeepingStatus: 'Dirty', notes: 'Yesterday' }
   ];
   const matches = (record, filter) => (!filter.roomNumber || filter.roomNumber === record.roomNumber) && record.reportDate >= filter.reportDate.$gte && record.reportDate < filter.reportDate.$lt;
@@ -101,6 +102,8 @@ test('reimport only upserts the selected date and preserves existing staff progr
       const update = operation.updateOne || operation.updateMany;
       assert.equal(update.update.$set.housekeepingStatus, undefined);
       assert.equal(update.update.$set.notes, undefined);
+      assert.equal(update.update.$set.stayoverServicedAt, undefined);
+      if (operation.updateOne) assert.equal(update.update.$setOnInsert.stayoverServicedAt, undefined);
       if (operation.updateOne) assert.equal(update.update.$setOnInsert.housekeepingStatus, 'Dirty');
       const current = stored.find(record => matches(record, update.filter) && (!Object.hasOwn(update.filter, 'checkedOutAt') || record.checkedOutAt == null));
       if (current) Object.assign(current, update.update.$set);
@@ -108,7 +111,7 @@ test('reimport only upserts the selected date and preserves existing staff progr
     }
     return { upsertedCount: 0, modifiedCount: operations.length };
   });
-  const req = request({ body: { date: '2026-10-03', rooms: [{ room: '101', housekeepingStatus: 'Dirty', notes: 'Source note', occupancyStatus: 'Occupied', pet: true }] } });
+  const req = request({ body: { date: '2026-10-03', rooms: [{ room: '101', housekeepingStatus: 'Dirty', notes: 'Source note', occupancyStatus: 'Occupied', pet: true, stayoverServicedAt: '2026-10-03T16:00:00Z' }] } });
   const res = response();
   await housekeeping.importHousekeepingArray(req, res);
   assert.equal(res.statusCode, 200);
@@ -116,6 +119,7 @@ test('reimport only upserts the selected date and preserves existing staff progr
   assert.equal(stored[0].housekeepingStatus, 'Clean');
   assert.equal(stored[0].notes, 'Inspected');
   assert.equal(stored[0].assignedAttendant, 'Sam');
+  assert.equal(stored[0].stayoverServicedAt.toISOString(), '2026-10-03T13:00:00.000Z');
   assert.equal(stored[0].occupancyStatus, 'Occupied');
   assert.equal(stored[1].notes, 'Yesterday');
   assert.equal(stored[1].housekeepingStatus, 'Dirty');
@@ -176,7 +180,7 @@ test('housekeeping cannot finish an occupied room through either update API', as
 
 test('front desk checkout releases a dated room for cleaning and broadcasts both boards', async t => {
   const id = new mongoose.Types.ObjectId().toString();
-  const record = { _id: id, room: '101', reportDate: new Date('2026-10-03T12:00:00Z'), housekeepingStatus: 'Clean', occupancyStatus: 'Occupied', notes: 'Pet In Room' };
+  const record = { _id: id, room: '101', reportDate: new Date('2026-10-03T12:00:00Z'), housekeepingStatus: 'Clean', occupancyStatus: 'Occupied', notes: 'Pet In Room', stayoverServicedAt: new Date('2026-10-03T10:00:00Z') };
   t.mock.method(RoomReport, 'findById', async () => record);
   t.mock.method(RoomReport, 'findOneAndUpdate', async (filter, update, options) => {
     assert.deepEqual(filter, { _id: id, occupancyStatus: 'Occupied', checkedOutAt: null, updatedAt: null });
@@ -185,15 +189,19 @@ test('front desk checkout releases a dated room for cleaning and broadcasts both
     return record;
   });
   let synchronized;
-  t.mock.method(Housekeeper, 'updateMany', async (filter, update, options) => {
+  let mirror;
+  t.mock.method(Housekeeper, 'find', filter => {
     assert.equal(filter.roomNumber, '101');
     assert.equal(filter.reportDate.$gte.toISOString(), '2026-10-03T00:00:00.000Z');
     assert.equal(filter.reportDate.$lt.toISOString(), '2026-10-04T00:00:00.000Z');
-    assert.equal(options.upsert, true);
-    synchronized = update;
-    return { modifiedCount: 1 };
+    return query(mirror ? [mirror] : []);
   });
-  t.mock.method(Housekeeper, 'find', () => query([{ ...record, roomNumber: '101' }]));
+  t.mock.method(Housekeeper, 'updateOne', async (filter, update, options) => {
+    assert.equal(options.upsert, true);
+    synchronized = update.$setOnInsert;
+    mirror = { _id: new mongoose.Types.ObjectId(), ...synchronized };
+    return { upsertedCount: 1 };
+  });
   const req = request({ params: { id }, user: { role: 'frontdesk' } });
   const res = response();
   await rooms.checkoutRoom(req, res);
@@ -201,10 +209,12 @@ test('front desk checkout releases a dated room for cleaning and broadcasts both
   assert.equal(res.body.data.occupancyStatus, 'Vacant');
   assert.equal(res.body.data.housekeepingStatus, 'Dirty');
   assert.equal(res.body.data.guestStatus, 'Checked-out');
+  assert.equal(res.body.data.stayoverServicedAt, null);
   assert.ok(res.body.data.checkedOutAt instanceof Date);
-  assert.equal(synchronized.$set.cleanedAt, null);
-  assert.equal(synchronized.$set.inspectedAt, null);
-  assert.equal(synchronized.$setOnInsert.notes, 'Pet In Room');
+  assert.equal(synchronized.cleanedAt, null);
+  assert.equal(synchronized.inspectedAt, null);
+  assert.equal(synchronized.stayoverServicedAt, null);
+  assert.equal(synchronized.notes, 'Pet In Room');
   assert.deepEqual(req.events.map(([event, payload]) => [event, payload.action, payload.date]), [
     ['housekeepingBulkUpdated', 'checkout', '2026-10-03'], ['roomStatusUpdated', 'checkout', '2026-10-03']
   ]);
@@ -226,43 +236,43 @@ test('checkout denies housekeeping before database access and never dirties a va
   assert.equal(writes, 0);
 });
 
-test('checkout retry preserves completed cleaning and can repair missing housekeeping synchronization', async t => {
+test('checkout retry preserves completed cleaning only for a matching checkout cycle', async t => {
   const id = new mongoose.Types.ObjectId().toString();
   const checkedOutAt = new Date('2026-10-03T12:00:00Z');
+  const cleanedAt = new Date('2026-10-03T14:00:00Z');
   const record = { _id: id, room: '101', reportDate: new Date('2026-10-03'), housekeepingStatus: 'Clean', occupancyStatus: 'Vacant', guestStatus: 'Checked-out', checkedOutAt };
+  const mirror = { ...record, _id: new mongoose.Types.ObjectId(), roomNumber: '101', cleanedAt };
   t.mock.method(RoomReport, 'findById', async () => record);
   t.mock.method(RoomReport, 'findOneAndUpdate', () => assert.fail('A repeated checkout must not mutate the room report'));
-  t.mock.method(Housekeeper, 'updateMany', async (filter, update, options) => {
-    assert.equal(update.$set.housekeepingStatus, undefined);
-    assert.equal(update.$setOnInsert.housekeepingStatus, 'Clean');
-    assert.equal(update.$set.checkedOutAt, checkedOutAt);
-    assert.equal(update.$set.cleanedAt, undefined);
-    assert.equal(update.$set.inspectedAt, undefined);
-    assert.equal(options.upsert, true);
-    return { upsertedCount: 1, modifiedCount: 0 };
-  });
-  t.mock.method(Housekeeper, 'find', () => query([record]));
+  t.mock.method(Housekeeper, 'find', () => query([mirror]));
+  t.mock.method(Housekeeper, 'findOneAndUpdate', () => assert.fail('Matching checkout progress must remain untouched'));
   const req = request({ params: { id }, user: { role: 'frontdesk' } });
   const res = response();
   await rooms.checkoutRoom(req, res);
   assert.equal(res.statusCode, 200);
-  assert.equal(res.body.data.housekeepingStatus, 'Clean');
-  assert.equal(req.events.length, 2);
+  assert.equal(res.body.warning, undefined);
+  assert.equal(mirror.housekeepingStatus, 'Clean');
+  assert.equal(mirror.cleanedAt, cleanedAt);
+  assert.equal(req.events.length, 1);
 });
 
 test('checkout preserves unavailable status and order instead of releasing a blocked room', async t => {
   let record;
+  let mirror;
   t.mock.method(RoomReport, 'findById', async () => record);
   t.mock.method(RoomReport, 'findOneAndUpdate', async (filter, update) => Object.assign(record, update.$set));
-  t.mock.method(Housekeeper, 'updateMany', async () => ({ modifiedCount: 0, matchedCount: 1 }));
+  t.mock.method(Housekeeper, 'find', () => query(mirror ? [mirror] : []));
+  t.mock.method(Housekeeper, 'updateOne', async (filter, update) => { mirror = { _id: new mongoose.Types.ObjectId(), ...update.$setOnInsert }; return { upsertedCount: 1 }; });
   for (const blocked of [
     { housekeepingStatus: 'Out of Order', orderStatus: '' },
     { housekeepingStatus: 'Maintenance', orderStatus: '' },
     { housekeepingStatus: 'Clean', orderStatus: 'OOI/OI' }
   ]) {
-    record = { room: '101', reportDate: new Date('2026-10-03'), occupancyStatus: 'Occupied', ...blocked };
+    mirror = null;
+    const id = new mongoose.Types.ObjectId().toString();
+    record = { _id: id, room: '101', reportDate: new Date('2026-10-03'), occupancyStatus: 'Occupied', ...blocked };
     const res = response();
-    await rooms.checkoutRoom(request({ params: { id: new mongoose.Types.ObjectId().toString() }, user: { role: 'frontdesk' } }), res);
+    await rooms.checkoutRoom(request({ params: { id }, user: { role: 'frontdesk' } }), res);
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.data.occupancyStatus, 'Vacant');
     assert.equal(res.body.data.housekeepingStatus, blocked.housekeepingStatus);
@@ -279,13 +289,18 @@ test('vacant-room completion reaches the front desk with the same report date', 
     assert.deepEqual(filter, { _id: id, updatedAt: null });
     return Object.assign(record, update.$set);
   });
-  t.mock.method(RoomReport, 'updateMany', async (filter, update) => {
+  let mirror = { _id: new mongoose.Types.ObjectId(), room: '101', reportDate: record.reportDate, housekeepingStatus: 'Dirty', occupancyStatus: 'Vacant' };
+  t.mock.method(RoomReport, 'find', filter => {
     assert.equal(filter.room, '101');
     assert.equal(filter.reportDate.$gte.toISOString(), '2026-10-03T00:00:00.000Z');
-    assert.deepEqual(update.$set, { housekeepingStatus: 'Clean' });
-    return { modifiedCount: 1 };
+    return query([mirror]);
   });
-  t.mock.method(RoomReport, 'find', () => query([{ room: '101', reportDate: record.reportDate, housekeepingStatus: 'Clean' }]));
+  t.mock.method(RoomReport, 'findOneAndUpdate', async (filter, update) => {
+    assert.equal(String(filter._id), String(mirror._id));
+    assert.deepEqual(update.$set, { housekeepingStatus: 'Clean' });
+    mirror = { ...mirror, ...update.$set };
+    return mirror;
+  });
   const req = request({ params: { id }, user: { role: 'housekeeping' }, body: { housekeepingStatus: 'Clean' } });
   const res = response();
   await housekeeping.updateStatus(req, res);
@@ -328,4 +343,137 @@ test('upload synchronization creates missing dated rooms while preserving staff 
   assert.equal(stored[1].reportDate.toISOString(), `${day}T00:00:00.000Z`);
   assert.equal((await syncReportMetadata(rows, day, { ensureRecords: true })).upsertedCount, 0);
   assert.equal(stored.length, 2);
+});
+
+test('stayover service eligibility distinguishes continuing stays from departures and uncertain occupancy', () => {
+  const record = { occupancyStatus: 'Occupied', housekeepingStatus: 'Dirty', reportDate: new Date('2026-10-03'), checkOut: '2026-10-04' };
+  assert.equal(isStayover(record), true);
+  for (const changes of [
+    { checkOut: '2026-10-03', guestStatus: 'Stay Over' }, { checkOut: '2026-10-02' },
+    { guestStatus: 'Due-out' }, { guestStatus: 'due out' }, { guestStatus: 'Checked-out' },
+    { checkOut: null }, { checkOut: 'Unknown', guestStatus: 'Checked-in' },
+    { occupancyStatus: 'Vacant', guestStatus: 'Stay Over' },
+    { housekeepingStatus: 'Maintenance' }, { orderStatus: 'OOI/OI' }, { reportDate: null }
+  ]) assert.equal(isStayover({ ...record, ...changes }), false, JSON.stringify(changes));
+  assert.equal(isStayover({ ...record, checkOut: null, guestStatus: 'Stay Over' }), true);
+  assert.equal(isStayover({ ...record, checkOut: 'Unknown', guestStatus: 'Stayover' }), true);
+  assert.equal(isStayover({ ...record, checkOut: 'Oct 04' }), true);
+  assert.equal(isStayover({ ...record, checkOut: '10/04' }), true);
+  assert.equal(normalizedStayDate('Jan 02', '2025-12-31'), '2025-01-02');
+  assert.equal(normalizedStayDate('10/04/26', '2026-10-03'), '2026-10-04');
+  assert.equal(normalizedStayDate('Feb 30', '2026-10-03'), '');
+});
+
+test('stayover timestamps are typed partial progress fields and cannot be forged by a new report', () => {
+  const options = { housekeeping: true, partial: true, role: 'housekeeping' };
+  const stamp = '2026-10-03T14:30:00.000Z';
+  assert.deepEqual(normalizeFields({ stayoverServicedAt: stamp }, options), { stayoverServicedAt: new Date(stamp) });
+  assert.deepEqual(normalizeFields({ stayoverServicedAt: null }, options), { stayoverServicedAt: null });
+  for (const value of ['bad', 123, false, [], {}]) {
+    assert.throws(() => normalizeFields({ stayoverServicedAt: value }, options), error => error.status === 400);
+  }
+  assert.throws(() => normalizeFields({ roomNumber: '101', reportDate: '2026-10-03', stayoverServicedAt: stamp }, { housekeeping: true }), /cannot be changed/);
+  assert.throws(() => normalizeFields({ stayoverServicedAt: stamp }, { partial: true, role: 'housekeeping' }), /cannot be changed/);
+  const imported = normalizeFields({ room: '101', stayoverServicedAt: stamp }, { housekeeping: true, imported: true, reportDate: '2026-10-03' });
+  assert.equal(imported.stayoverServicedAt, undefined);
+});
+
+test('stayover service completion and undo preserve guest occupancy and cleaning status on both boards', async t => {
+  const id = new mongoose.Types.ObjectId().toString();
+  const cleanedAt = new Date('2026-10-02T12:00:00Z');
+  const record = { _id: id, roomNumber: '101', reportDate: new Date('2026-10-03'), housekeepingStatus: 'Dirty', occupancyStatus: 'Occupied', guestStatus: 'Stay Over', checkOut: '2026-10-04', cleanedAt, updatedAt: new Date('2026-10-03T12:00:00Z') };
+  t.mock.method(Housekeeper, 'findById', async () => record);
+  t.mock.method(Housekeeper, 'findByIdAndUpdate', () => assert.fail('Stayover progress must check current eligibility and version'));
+  t.mock.method(Housekeeper, 'findOneAndUpdate', async (filter, update, options) => {
+    assert.deepEqual(filter, { _id: id, updatedAt: record.updatedAt });
+    assert.equal(options.runValidators, true);
+    assert.deepEqual(Object.keys(update.$set), ['stayoverServicedAt']);
+    return Object.assign(record, update.$set);
+  });
+  let mirror = { ...record, _id: new mongoose.Types.ObjectId(), room: '101' };
+  t.mock.method(RoomReport, 'find', filter => {
+    assert.equal(filter.room, '101');
+    assert.equal(filter.reportDate.$gte.toISOString(), '2026-10-03T00:00:00.000Z');
+    return query([mirror]);
+  });
+  t.mock.method(RoomReport, 'findOneAndUpdate', async (filter, update) => {
+    assert.equal(String(filter._id), String(mirror._id));
+    assert.deepEqual(Object.keys(update.$set), ['stayoverServicedAt']);
+    mirror = { ...mirror, ...update.$set };
+    return mirror;
+  });
+  for (const stamp of ['2026-10-03T14:30:00.000Z', null]) {
+    const req = request({ params: { id }, user: { role: 'housekeeping' }, body: { stayoverServicedAt: stamp } });
+    const res = response();
+    await housekeeping.updateStatus(req, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.data.stayoverServicedAt?.toISOString() ?? null, stamp);
+    assert.equal(res.body.data.occupancyStatus, 'Occupied');
+    assert.equal(res.body.data.housekeepingStatus, 'Dirty');
+    assert.equal(res.body.data.cleanedAt, cleanedAt);
+    assert.deepEqual(req.events.map(([event]) => event), ['roomStatusUpdated', 'housekeepingStatusUpdated']);
+  }
+});
+
+test('stayover service and undo reject departures, unavailable rooms, and combined cleaning mutations before writing', async t => {
+  const id = new mongoose.Types.ObjectId().toString();
+  const base = { _id: id, roomNumber: '101', reportDate: new Date('2026-10-03'), housekeepingStatus: 'Dirty', occupancyStatus: 'Occupied', checkOut: '2026-10-04' };
+  let record;
+  t.mock.method(Housekeeper, 'findById', async () => record);
+  t.mock.method(Housekeeper, 'findByIdAndUpdate', () => assert.fail('Invalid service mutation cannot write'));
+  t.mock.method(Housekeeper, 'findOneAndUpdate', () => assert.fail('Invalid service mutation cannot write'));
+  for (const role of ['housekeeping', 'admin']) for (const changes of [
+    { checkOut: '2026-10-03', guestStatus: 'Stay Over' }, { checkOut: '2026-10-02' },
+    { checkOut: null }, { guestStatus: 'Due-out' }, { occupancyStatus: 'Vacant' },
+    { housekeepingStatus: 'Maintenance' }, { orderStatus: 'OOO' }
+  ]) for (const stamp of ['2026-10-03T14:30:00.000Z', null]) {
+    record = { ...base, ...changes };
+    const req = request({ params: { id }, user: { role }, body: { stayoverServicedAt: stamp } });
+    const res = response();
+    await housekeeping.updateStatus(req, res);
+    assert.equal(res.statusCode, 409, JSON.stringify({ role, changes, stamp }));
+    assert.equal(req.events.length, 0);
+  }
+  record = base;
+  for (const changes of [{ occupancyStatus: 'Vacant' }, { housekeepingStatus: 'Clean' }]) {
+    const res = response();
+    await housekeeping.updateStatus(request({ params: { id }, body: { stayoverServicedAt: '2026-10-03T14:30:00.000Z', ...changes } }), res);
+    assert.equal(res.statusCode, 400);
+  }
+});
+
+test('a concurrent room change rejects stale stayover progress without synchronizing it', async t => {
+  const id = new mongoose.Types.ObjectId().toString();
+  t.mock.method(Housekeeper, 'findById', async () => ({ _id: id, occupancyStatus: 'Occupied', housekeepingStatus: 'Dirty', reportDate: new Date('2026-10-03'), checkOut: '2026-10-04', updatedAt: new Date('2026-10-03T12:00:00Z') }));
+  t.mock.method(Housekeeper, 'findOneAndUpdate', async () => null);
+  t.mock.method(RoomReport, 'find', () => assert.fail('Stale progress must not synchronize'));
+  const req = request({ params: { id }, user: { role: 'housekeeping' }, body: { stayoverServicedAt: '2026-10-03T14:30:00.000Z' } });
+  const res = response();
+  await housekeeping.updateStatus(req, res);
+  assert.equal(res.statusCode, 409);
+  assert.match(res.body.message, /changed/);
+  assert.equal(req.events.length, 0);
+});
+
+test('front desk edits preserve stayover progress until occupancy changes', async t => {
+  const id = new mongoose.Types.ObjectId().toString();
+  const stamp = new Date('2026-10-03T14:30:00Z');
+  const record = { _id: id, room: '101', reportDate: new Date('2026-10-03'), occupancyStatus: 'Occupied', housekeepingStatus: 'Dirty', stayoverServicedAt: stamp };
+  t.mock.method(RoomReport, 'findById', async () => record);
+  t.mock.method(RoomReport, 'findOneAndUpdate', async (filter, update) => Object.assign(record, update.$set));
+  let mirror = { ...record, _id: new mongoose.Types.ObjectId(), roomNumber: '101' };
+  t.mock.method(Housekeeper, 'find', () => query([mirror]));
+  t.mock.method(Housekeeper, 'findOneAndUpdate', async (filter, update) => {
+    assert.equal(String(filter._id), String(mirror._id));
+    mirror = { ...mirror, ...update.$set };
+    return mirror;
+  });
+  for (const occupancyStatus of ['Occupied', 'Vacant']) {
+    const res = response();
+    await rooms.updateStatus(request({ params: { id }, user: { role: 'frontdesk' }, body: { occupancyStatus, notes: 'Desk edit' } }), res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.data.stayoverServicedAt, occupancyStatus === 'Occupied' ? stamp : null);
+    assert.equal(mirror.stayoverServicedAt, occupancyStatus === 'Occupied' ? stamp : null);
+    assert.equal(res.body.warning, undefined);
+  }
 });

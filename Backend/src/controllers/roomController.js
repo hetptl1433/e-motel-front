@@ -1,7 +1,8 @@
 const mongoose = require('mongoose');
 const RoomReport = require('../models/RoomReport');
 const Housekeeper = require('../models/Housekeeper');
-const { dateRange, normalizeFields, isRoomUnavailable, assertStaffCanClean, emitMutation, sendError, invalid, recordChanged } = require('../utils/roomData');
+const { dateRange, normalizeFields, isRoomUnavailable, assertStaffCanClean, emitMutation, sendError, invalid, recordChanged, expectedVersion, assertExpectedVersion } = require('../utils/roomData');
+const { sameValue, synchronizeRecord } = require('../utils/recordSync');
 
 async function syncToHousekeeping(req, room, updates, { action = 'roomUpdate', ensureRecord = false, preserveCleaningTimestamps = false } = {}) {
   const date = new Date(room.reportDate).toISOString().slice(0, 10);
@@ -13,16 +14,32 @@ async function syncToHousekeeping(req, room, updates, { action = 'roomUpdate', e
       changes.cleanedAt = null;
       changes.inspectedAt = null;
     }
-    const update = { $set: changes };
+    const changesFor = target => {
+      if (action !== 'checkout') {
+        const mirror = { ...changes };
+        if (updates.housekeepingStatus === 'Clean' && target?.housekeepingStatus === 'Clean' && target.cleanedAt) delete mirror.cleanedAt;
+        return mirror;
+      }
+      const checkout = { ...changes };
+      // A retry must repair a missed checkout, without undoing cleaning that
+      // already belongs to this checkout cycle.
+      if (!sameValue(target?.checkedOutAt, room.checkedOutAt)) {
+        Object.assign(checkout, { housekeepingStatus: isRoomUnavailable(room) ? room.housekeepingStatus : 'Dirty', cleanedAt: null, inspectedAt: null });
+      } else {
+        delete checkout.housekeepingStatus;
+        delete checkout.cleanedAt;
+        delete checkout.inspectedAt;
+      }
+      return checkout;
+    };
+    let initial;
     if (ensureRecord) {
       const source = room.toObject ? room.toObject() : room;
-      const initial = normalizeFields(source, { housekeeping: true, imported: true, reportDate: date });
-      update.$setOnInsert = Object.fromEntries(Object.entries(initial).filter(([field]) => changes[field] === undefined));
+      initial = { ...normalizeFields(source, { housekeeping: true, imported: true, reportDate: date }), ...changesFor(null) };
     }
-    const result = await Housekeeper.updateMany(filter, update, { runValidators: true, ...(ensureRecord && { upsert: true }) });
-    if (result.modifiedCount || result.upsertedCount) {
-      const data = await Housekeeper.find(filter);
-      emitMutation(req, 'housekeepingBulkUpdated', { action, date, data });
+    const result = await synchronizeRecord({ SourceModel: RoomReport, TargetModel: Housekeeper, source: room, filter, changesFor, initial });
+    if (result.changed) {
+      emitMutation(req, 'housekeepingBulkUpdated', { action, date, data: result.data });
     }
   } catch (error) {
     console.error('Housekeeping synchronization failed:', error.message);
@@ -45,13 +62,16 @@ exports.updateStatus = async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.isObjectIdOrHexString(id)) throw invalid('Invalid room ID format');
-    const updates = normalizeFields(req.body, { partial: true, role: req.user?.role });
+    const input = expectedVersion(req.body);
+    const updates = normalizeFields(input.data, { partial: true, role: req.user?.role });
     if (updates.occupancyStatus === 'Occupied') updates.checkedOutAt = null;
     let updatedRoom;
-    if (req.user?.role === 'housekeeping' && ['Clean', 'Dirty'].includes(updates.housekeepingStatus)) {
+    if (input.expectedUpdatedAt !== undefined || updates.occupancyStatus !== undefined || (req.user?.role === 'housekeeping' && ['Clean', 'Dirty'].includes(updates.housekeepingStatus))) {
       const current = await RoomReport.findById(id);
       if (!current) return res.status(404).json({ success: false, message: 'Room not found' });
+      assertExpectedVersion(current, input.expectedUpdatedAt);
       assertStaffCanClean(current, updates, req.user?.role);
+      if (updates.occupancyStatus !== undefined && updates.occupancyStatus !== current.occupancyStatus) updates.stayoverServicedAt = null;
       updatedRoom = await RoomReport.findOneAndUpdate({ _id: id, updatedAt: current.updatedAt ?? null }, { $set: updates }, { new: true, runValidators: true });
       if (!updatedRoom) throw recordChanged();
     } else {
@@ -77,15 +97,17 @@ exports.checkoutRoom = async (req, res) => {
     }
     const { id } = req.params;
     if (!mongoose.isObjectIdOrHexString(id)) throw invalid('Invalid room ID format');
+    const { expectedUpdatedAt } = expectedVersion(req.body || {});
     const current = await RoomReport.findById(id);
     if (!current) return res.status(404).json({ success: false, message: 'Room not found' });
+    assertExpectedVersion(current, expectedUpdatedAt);
     let data = current;
     const repeated = Boolean(current.checkedOutAt);
     let didCheckout = false;
     if (!repeated) {
       if (current.occupancyStatus !== 'Occupied') return res.status(409).json({ success: false, message: 'This room is already vacant' });
       const updates = {
-        occupancyStatus: 'Vacant', guestStatus: 'Checked-out', checkedOutAt: new Date(),
+        occupancyStatus: 'Vacant', guestStatus: 'Checked-out', checkedOutAt: new Date(), stayoverServicedAt: null,
         // A checkout cannot release a maintenance or out-of-order room.
         housekeepingStatus: isRoomUnavailable(current) ? current.housekeepingStatus : 'Dirty'
       };
@@ -101,7 +123,7 @@ exports.checkoutRoom = async (req, res) => {
       }
     }
     const date = new Date(data.reportDate).toISOString().slice(0, 10);
-    const changes = { occupancyStatus: data.occupancyStatus, housekeepingStatus: data.housekeepingStatus, guestStatus: data.guestStatus, checkedOutAt: data.checkedOutAt };
+    const changes = { occupancyStatus: data.occupancyStatus, housekeepingStatus: data.housekeepingStatus, guestStatus: data.guestStatus, checkedOutAt: data.checkedOutAt, stayoverServicedAt: null };
     if (!didCheckout) delete changes.housekeepingStatus;
     if (didCheckout) Object.assign(changes, { cleanedAt: null, inspectedAt: null });
     const warning = await syncToHousekeeping(req, data, changes, { action: 'checkout', ensureRecord: true, preserveCleaningTimestamps: true });

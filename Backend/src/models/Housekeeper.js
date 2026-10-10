@@ -17,6 +17,7 @@ const housekeeperSchema = new mongoose.Schema({
   notes: { type: String, trim: true },
   cleanedAt: Date,
   inspectedAt: Date,
+  stayoverServicedAt: Date,
   issues: [String],
   photos: [String],
   pet: { type: Boolean, default: false },

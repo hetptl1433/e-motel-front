@@ -1,0 +1,16 @@
+node_modules
+
+keys/
+uploads/
+
+
+# Local credentials and runtime files
+.env
+.env.*
+!.env.example
+.DS_Store
+npm-debug.log*
+
+# Daily uploaded originals and staging files (keep supplied sample PDFs)
+reports/room_sheet_*.pdf
+reports/.room_sheet_*.tmp

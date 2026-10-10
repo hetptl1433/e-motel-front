@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "fluid": true,
+  "installCommand": "npm ci --prefix Backend --omit=dev && npm ci --prefix HK/L1/l1",
+  "buildCommand": "npm run build",
+  "outputDirectory": "HK/L1/l1/build",
+  "functions": {
+    "api/server.js": {
+      "maxDuration": 300,
+      "includeFiles": "Backend/node_modules/pdf-parse/lib/pdf.js/v1.10.100/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/socket.io", "destination": "/api/server" },
+    { "source": "/socket.io/", "destination": "/api/server" },
+    { "source": "/socket.io/:path*", "destination": "/api/server" },
+    { "source": "/api/:path*", "destination": "/api/server" },
+    { "source": "/((?!api(?:/|$)|socket\\.io(?:/|$)|static/|favicon.ico|manifest.json|robots.txt|logo192.png|logo512.png).*)", "destination": "/index.html" }
+  ]
+}

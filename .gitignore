@@ -1,25 +1,30 @@
-# # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-# # in .gitignore
-
-# # dependencies
-/node_modules
-# /.pnp
-# .pnp.js
-
-# # testing
-# /coverage
-
-# # production
-# /build
-
-# # misc
-# .DS_Store
-# Remove the following lines so .env files are NOT ignored:
-# .env.local
-# .env.development.local
-# .env.test.local
-# .env.production.local
-
-# npm-debug.log*
-# yarn-debug.log*
-# yarn-error.log*
+.vercel/
+.DS_Store
+.dependency-backups/
+.vscode/
+.aws/
+.agents/
+.codex/
+**/node_modules/
+**/build/
+**/coverage/
+**/.env
+**/.env.*
+!**/.env.example
+**/*.bak
+**/*.log
+*.zip
+YourDBName.*
+Backend/reports/
+Backend/uploads/
+Backend/keys/
+Backend/room_sheet.pdf
+Backend/controllers/
+Backend/index.js
+Backend/routes/housekeeper.js
+Backend/src/models/Room.js
+Backend/*socket*.html
+Backend/HOUSEKEEPER_API_DOCS.md
+HK/L1/l1/node
+HK/L1/l1/l1@*
+HK/L1/l1/htaccess

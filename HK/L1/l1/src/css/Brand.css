@@ -1,0 +1,10 @@
+.brand { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; vertical-align: middle; }
+.brand-mark { display: block; width: 36px; height: 36px; flex: none; }
+.brand-wordmark { color: #172b4d; font-weight: 800; letter-spacing: -.8px; line-height: 1; }
+.brand-inverse .brand-wordmark { color: #fff; }
+.brand-inverse .brand-mark { box-shadow: 0 0 0 1px #ffffff30; border-radius: 24%; }
+.login-brand { margin-bottom: 16px; font-size: 42px; }
+.login-brand .brand { gap: 14px; }
+.login-brand .brand-mark { width: 58px; height: 58px; }
+@media (max-width: 800px) { .workspace-brand .brand-mark { width: 32px; height: 32px; } }
+@media (max-width: 700px) { .login-brand { font-size: 36px; } .login-brand .brand-mark { width: 52px; height: 52px; } }

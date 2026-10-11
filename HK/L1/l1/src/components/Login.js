@@ -2,6 +2,7 @@ import React, { useState, useContext } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AuthContext } from '../context/authContext';
 import '../css/Login.css';
+import Brand from './Brand';
 
 export default function Login() {
   const [number, setNumber] = useState('');
@@ -29,7 +30,7 @@ export default function Login() {
   return (
     <div className="login-container">
       <div className="login-intro">
-        <h1 className="text-4xl font-extrabold text-white mb-3">E-motel</h1>
+        <h1 className="login-brand"><Brand inverse /></h1>
         <p className="text-white text-lg">A clearer view of every room, every day.</p>
         <p className="text-blue-100 mt-3">Room reports, cleaning assignments, and daily room sheets in one workspace.</p>
       </div>

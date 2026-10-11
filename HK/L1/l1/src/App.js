@@ -8,6 +8,7 @@ import HouseKeeping from './components/houseKeeping';
 import UploadReport from './components/UploadReport';
 import Dashboard from './components/Dashboard';
 import RoomSheets from './components/RoomSheets';
+import Brand from './components/Brand';
 import { isReportDate } from './utils/roomData';
 
 function Workspace() {
@@ -21,7 +22,7 @@ function Workspace() {
     <div className="workspace">
       <header className="workspace-header">
         <div className="workspace-header-inner">
-          <NavLink to={`${manageReports ? '/dashboard' : '/housekeeping'}${dayQuery}`} className="workspace-brand"><span>E</span>-motel</NavLink>
+          <NavLink to={`${manageReports ? '/dashboard' : '/housekeeping'}${dayQuery}`} className="workspace-brand"><Brand /></NavLink>
           <nav aria-label="Main navigation" className="workspace-nav">
             {manageReports && <NavLink to={`/dashboard${dayQuery}`} className={linkClass}>Front desk</NavLink>}
             <NavLink to={`/housekeeping${dayQuery}`} className={linkClass}>Housekeeping</NavLink>

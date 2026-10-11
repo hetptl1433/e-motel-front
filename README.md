@@ -21,6 +21,8 @@ npm run dev
 
 The local launcher uses nodemon when installed and falls back to Node's built-in watch mode when backend development dependencies are absent.
 
+The header, login page, favicon, and home-screen icons share the E-motel mark. Run `node scripts/brand-assets.js` to regenerate SVG, ICO, and PNG assets from its geometry without extra dependencies. The export includes a full wordmark at `HK/L1/l1/public/logo.svg`, an opaque Apple icon, and a separate maskable app icon.
+
 Open http://127.0.0.1:3000. The API uses http://127.0.0.1:4000/api. Stop existing servers on those ports before starting another copy. You can also start each project separately with `npm --prefix Backend run dev` and `npm --prefix HK/L1/l1 start`. The health endpoint `/api/health` returns 200 when MongoDB is connected, or 503 with a useful status when it is unavailable.
 
 Create an account with `npm --prefix Backend run create-user -- <ID> <role>` after setting `MOTEL_USER_PASSWORD` in your environment. Roles are `admin`, `frontdesk`, and `housekeeping`. Account creation never changes an existing user's password. Optional `npm --prefix Backend run seed` requires `MOTEL_SEED_PASSWORD`; it adds the sample and missing development users without deleting records.

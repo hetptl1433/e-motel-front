@@ -16,6 +16,6 @@
     { "source": "/socket.io/", "destination": "/api/server" },
     { "source": "/socket.io/:path*", "destination": "/api/server" },
     { "source": "/api/:path*", "destination": "/api/server" },
-    { "source": "/((?!api(?:/|$)|socket\\.io(?:/|$)|static/|favicon.ico|manifest.json|robots.txt|logo192.png|logo512.png).*)", "destination": "/index.html" }
+    { "source": "/((?!api(?:/|$)|socket\\.io(?:/|$)|static/|favicon\\.(?:ico|svg)|manifest.json|robots.txt|logo\\.svg|logo(?:192|512|-maskable512)\\.png|apple-touch-icon\\.png).*)", "destination": "/index.html" }
   ]
 }

@@ -11,8 +11,7 @@
 }
 .workspace-header { background: var(--surface); border-bottom: 1px solid var(--line); }
 .workspace-header-inner { max-width: 1560px; margin: auto; padding: 0 40px; display: flex; align-items: center; gap: 48px; min-height: 56px; }
-.workspace-brand { font-size: 26px; font-weight: 800; letter-spacing: -1px; white-space: nowrap; color: var(--ink); }
-.workspace-brand > span { color: var(--blue); }
+.workspace-brand { display: inline-flex; align-items: center; min-height: 44px; font-size: 26px; white-space: nowrap; color: var(--ink); }
 .workspace-nav { display: flex; align-self: stretch; gap: 24px; min-width: 0; }
 .workspace-link { display: flex; align-items: center; padding: 18px 4px 15px; border-bottom: 3px solid transparent; font-size: 14px; white-space: nowrap; }
 .workspace-link:hover { color: var(--blue); }
